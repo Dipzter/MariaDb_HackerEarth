@@ -48,7 +48,7 @@ def grant_privilege_to_role(role_name, privilege, table_name):
     cur = conn.cursor()
     try:
         # Example: GRANT SELECT ON company.employees TO hr_reader;
-        cur.execute(f"GRANT {privilege} ON company.{table_name} TO ?", (role_name,))
+        cur.execute(f"GRANT {privilege} ON {table_name} TO ?", (role_name,))
         conn.commit()
         print(f"✅ Privilege '{privilege}' on table '{table_name}' granted to role '{role_name}'.")
     except mariadb.Error as e:
