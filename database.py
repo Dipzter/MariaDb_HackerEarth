@@ -7,12 +7,60 @@ import torch
 # Database configuration
 config = {
     'user': 'root',
-    'password': 'my-secret-pw',
+    'password': '$Dipankar917',
     'host': 'localhost',
-    'port': 3307,
+    'port': 3306,
     'database': 'hackathon_demo'
 }
 
+def get_connection():
+    try:
+        conn = mariadb.connect(**config)
+        print("Connection successful!")
+        return conn
+    except mariadb.Error as e:
+        print(f"Error connecting to MariaDB Platform: {e}")
+        sys.exit(1)
+
+def create_role(role_name):
+    conn = get_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute(f"CREATE ROLE IF NOT EXISTS {role_name};")
+        print(f"Role '{role_name}' created or already exists.")
+        conn.commit()
+    except mariadb.Error as e:
+        print(f"Error creating role: {e}")
+    finally:
+        conn.close()
+        
+def grant_privileges(role_name, privileges, table_name):
+    conn = get_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute(f"GRANT {privileges} ON {table_name} TO {role_name};")
+        print(f"Granted {privileges} on {table_name} to role '{role_name}'.")
+        conn.commit()
+    except mariadb.Error as e:
+        print(f"Error granting privileges: {e}")
+    finally:
+        conn.close()
+        
+def grant_role_to_user(role_name, user_name):
+    conn = get_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute(f"GRANT {role_name} TO {user_name};")
+        print(f"Granted role '{role_name}' to user '{user_name}'.")
+        conn.commit()
+    except mariadb.Error as e:
+        print(f"Error granting role to user: {e}")
+    finally:
+        conn.close()
+"""
 def create_and_insert_airports_data():
     conn = None
     try:
@@ -29,7 +77,8 @@ def create_and_insert_airports_data():
 
         # 2. Create the table with correct UTF8 character set
         create_table_sql = """
-        CREATE TABLE IF NOT EXISTS airports (
+"""
+            CREATE TABLE IF NOT EXISTS airports (
             airport_id INT,
             name VARCHAR(255),
             city VARCHAR(255),
@@ -46,6 +95,7 @@ def create_and_insert_airports_data():
             source VARCHAR(255)
         ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
         """
+"""
         cursor.execute(create_table_sql)
         conn.commit()
         print("Airports table created or already exists.")
@@ -75,11 +125,13 @@ def create_and_insert_airports_data():
 
         # Create the INSERT statement
         insert_sql = """
+"""
         INSERT INTO airports (
             airport_id, name, city, country, iata, icao,
             latitude, longitude, altitude, timezone, dst, tz, type, source
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
+"""
         data_to_insert = [tuple(row) for row in df.itertuples(index=False)]
         
         cursor.executemany(insert_sql, data_to_insert)
@@ -150,7 +202,23 @@ def create_vectors_and_update_table():
     finally:
         if conn:
             conn.close()
+            
+        """
 
 if __name__ == "__main__":
-    create_and_insert_airports_data()
-    create_vectors_and_update_table()
+    # Test the connection
+    print("Testing connection to MariaDB...")
+    connection = get_connection()
+    connection.close()
+
+    # Test creating a role
+    print("\n1. Testing role creation...")
+    create_role('hr_reader')
+
+    # Test granting a privilege to the role
+    print("\n2. Testing granting privilege to role...")
+    grant_privileges('hr_reader', 'SELECT', 'employees')
+
+    # Test granting the role to our user 'anna'
+    print("\n3. Testing granting role to user...")
+    grant_role_to_user('hr_reader', 'anna')
