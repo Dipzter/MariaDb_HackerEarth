@@ -151,6 +151,6 @@ def create_vectors_and_update_table():
         if conn:
             conn.close()
 
-if __name__ == "__main__":
-    create_and_insert_airports_data()
-    create_vectors_and_update_table()
+#if __name__ == "__main__":
+#    create_and_insert_airports_data()
+#    create_vectors_and_update_table()
