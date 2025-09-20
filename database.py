@@ -1,8 +1,6 @@
 import mariadb
 import sys
-import pandas as pd
-from transformers import AutoTokenizer, AutoModel
-import torch
+
 
 # Database configuration
 config = {
