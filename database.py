@@ -1,4 +1,5 @@
 import mariadb
+import pandas as pd
 import sys
 
 

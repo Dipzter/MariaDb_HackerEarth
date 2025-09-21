@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import messagebox, simpledialog
-from database import get_connection, create_role, grant_privilege_to_role, grant_role_to_user
+from database_G import get_connection, create_role, grant_privilege_to_role, grant_role_to_user
 
 class RoleManagerGUI:
     def __init__(self, root):
