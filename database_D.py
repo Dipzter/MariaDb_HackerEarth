@@ -205,6 +205,10 @@ def create_vectors_and_update_table():
             
         """
 
+<<<<<<< HEAD
+=======
+<<<<<<<< HEAD:database.py
+>>>>>>> 45b8db1c2284a2b5166f8fac3ae79c457bd60c6f
 if __name__ == "__main__":
     # Test the connection
     print("Testing connection to MariaDB...")
@@ -221,4 +225,13 @@ if __name__ == "__main__":
 
     # Test granting the role to our user 'anna'
     print("\n3. Testing granting role to user...")
+<<<<<<< HEAD
     grant_role_to_user('hr_reader', 'anna')
+=======
+    grant_role_to_user('hr_reader', 'anna')
+========
+#if __name__ == "__main__":
+#    create_and_insert_airports_data()
+#    create_vectors_and_update_table()
+>>>>>>>> 45b8db1c2284a2b5166f8fac3ae79c457bd60c6f:database_D.py
+>>>>>>> 45b8db1c2284a2b5166f8fac3ae79c457bd60c6f
