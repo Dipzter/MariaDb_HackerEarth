@@ -10,7 +10,7 @@ config = {
     'password': '$Dipankar917',
     'host': 'localhost',
     'port': 3306,
-    'database': 'hackathon_demo'
+    'database': 'openflights_Dip'
 }
 
 def get_connection():
@@ -21,8 +21,43 @@ def get_connection():
     except mariadb.Error as e:
         print(f"Error connecting to MariaDB Platform: {e}")
         sys.exit(1)
+        
+def is_valid_id(name):
+    return name.replace('_', '').isalnum() and not name[0].isdigit()
+
+def check_user_exists(username):
+    conn = get_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("SELECT EXISTS(SELECT 1 FROM mysql.user WHERE user = ?)", (username,))
+        exists = cur.fetchone()[0]
+        return exists
+    except mariadb.Error as e:
+        print(f"Error checking user existence: {e}")
+        return False
+    finally:
+        conn.close()
+        
+def check_table_exists(table_name):
+    conn = get_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("SHOW TABLES LIKE ?;", (table_name,))
+        result = cur.fetchone()
+        return result is not None
+    except mariadb.Error as e:
+        print(f"Error checking table existence: {e}")
+        return False
+    finally:
+        conn.close()
 
 def create_role(role_name):
+    if not is_valid_id(role_name):
+        print(f"Invalid role name: '{role_name}'. Role names must be alphanumeric and can include underscores, but cannot start with a digit.")
+        return
+    
     conn = get_connection()
     cur = conn.cursor()
     
@@ -36,6 +71,10 @@ def create_role(role_name):
         conn.close()
         
 def grant_privileges(role_name, privileges, table_name):
+    if not is_valid_id(role_name) or not is_valid_id(table_name):
+        print(f"Invalid role name or table name: '{role_name}', '{table_name}'. Role names and table names must be alphanumeric and can include underscores, but cannot start with a digit.")
+        return
+    
     conn = get_connection()
     cur = conn.cursor()
     
@@ -49,6 +88,10 @@ def grant_privileges(role_name, privileges, table_name):
         conn.close()
         
 def grant_role_to_user(role_name, user_name):
+    if not is_valid_id(role_name) or not is_valid_id(user_name):
+        print(f"Invalid role name or user name: '{role_name}', '{user_name}'. Role names and user names must be alphanumeric and can include underscores, but cannot start with a digit.")
+        return
+    
     conn = get_connection()
     cur = conn.cursor()
     
@@ -60,6 +103,45 @@ def grant_role_to_user(role_name, user_name):
         print(f"Error granting role to user: {e}")
     finally:
         conn.close()
+        
+def list_tables():
+    conn = get_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("SHOW TABLES;")
+        tables = cur.fetchall()
+        print("Tables in the database:")
+        for table in tables:
+            print(f" - {table[0]}")
+    except mariadb.Error as e:
+        print(f"Error listing tables: {e}")
+    finally:
+        conn.close() 
+        
+def create_safe_table(table_name):
+    if not is_valid_id(table_name):
+        print(f"Invalid table name: '{table_name}'. Table names must be alphanumeric and can include underscores, but cannot start with a digit.")
+        return False
+    
+    conn = get_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS {table_name} (
+                id INT PRIMARY KEY AUTO_INCREMENT,
+                name VARCHAR(100),
+                description TEXT
+            );
+        """)
+        print(f"Table '{table_name}' created or already exists.")
+        conn.commit()
+    except mariadb.Error as e:
+        print(f"Error creating table: {e}")
+    finally:
+        conn.close()       
+
 """
 def create_and_insert_airports_data():
     conn = None
@@ -205,15 +287,31 @@ def create_vectors_and_update_table():
             
         """
 
-<<<<<<< HEAD
-=======
-<<<<<<<< HEAD:database.py
->>>>>>> 45b8db1c2284a2b5166f8fac3ae79c457bd60c6f
 if __name__ == "__main__":
     # Test the connection
     print("Testing connection to MariaDB...")
     connection = get_connection()
     connection.close()
+
+    # List tables in the database
+    print("\nListing tables in the database...")
+    connection = list_tables()
+    connection.close()
+    
+    target_table = input("\nEnter the name of the table to check for existence: ").strip()
+
+    print(f"\nChecking if table '{target_table}' exists...")
+    if check_table_exists(target_table):
+        print(f"Table '{target_table}' exists in the database.")
+    else:
+        print(f"Table '{target_table}' does not exist in the database.")
+        print("Do you want to create this table? (yes/no): ")
+        response = input().strip().lower()
+        if response in ['yes', 'y']:
+            create_safe_table(target_table)
+            print(f"Table '{target_table}' created.")
+        else:
+            print("Table creation skipped.")
 
     # Test creating a role
     print("\n1. Testing role creation...")
@@ -221,17 +319,12 @@ if __name__ == "__main__":
 
     # Test granting a privilege to the role
     print("\n2. Testing granting privilege to role...")
-    grant_privileges('hr_reader', 'SELECT', 'employees')
+    if check_table_exists(target_table):
+        grant_privileges('hr_reader', 'SELECT', target_table)
+    else:
+        print(f"Cannot grant privileges. Table '{target_table}' does not exist.")
 
     # Test granting the role to our user 'anna'
     print("\n3. Testing granting role to user...")
-<<<<<<< HEAD
     grant_role_to_user('hr_reader', 'anna')
-=======
-    grant_role_to_user('hr_reader', 'anna')
-========
-#if __name__ == "__main__":
-#    create_and_insert_airports_data()
-#    create_vectors_and_update_table()
->>>>>>>> 45b8db1c2284a2b5166f8fac3ae79c457bd60c6f:database_D.py
->>>>>>> 45b8db1c2284a2b5166f8fac3ae79c457bd60c6f
+

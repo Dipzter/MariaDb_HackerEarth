@@ -1,27 +1,59 @@
-import mariadb, sys
+import mariadb, sys, os
 from csv import reader
+
+config = {
+    'user': 'root',
+    'password': '$Dipankar917',
+    'host': 'localhost',
+    'port': 3306
+}
+needed_database = 'openflights_Dip'
 
 def get_connection():
     try:
-        conn = mariadb.connect(
-            user="root",
-            password="$Dipankar917",
-            host="localhost",
-            port=3306,
-            database="openflights"
-        )
-        return conn
+        temp_conn = mariadb.connect(**config)
+        temp_cursor = temp_conn.cursor()
+        
+        create_database = f"CREATE DATABASE IF NOT EXISTS {needed_database};"
+        temp_cursor.execute(create_database)
+        temp_conn.close()
     except mariadb.Error as e:
         print(f"Error connecting to MariaDB Platform: {e}")
         sys.exit(1)
+    return mariadb.connect(**{**config, 'database': needed_database})
+
+def check_file_exists(filename):
+    if not os.path.isfile(filename):
+        print(f"File '{filename}' not found. Please ensure the file is in the current directory.")
+        return False   
+    return True
 
 def clear_airports_table():
-    conn = get_connection()
-    cur = conn.cursor()
     try:
-        cur.execute("DELETE FROM airports;")
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DROP TABLE IF EXISTS airports;")
+        cursor.execute("""
+            CREATE TABLE airports (
+                airport_id INT PRIMARY KEY,
+                name VARCHAR(255),
+                city VARCHAR(255),
+                country VARCHAR(255),
+                iata_code VARCHAR(5),
+                icao_code VARCHAR(6),
+                latitude FLOAT,
+                longitude FLOAT,
+                altitude INT,
+                timezone VARCHAR(10),
+                dst VARCHAR(1),
+                tz_db_time_zone VARCHAR(50),
+                type VARCHAR(20),
+                source VARCHAR(20),
+                embedding VECTOR(384)
+            )
+        """)
         conn.commit()
-        print("Cleared existing data from airports table.")
+        print("Dropped and recreated airports table.")
     except mariadb.Error as e:
         print(f"Error clearing table: {e}")
     finally:
@@ -58,13 +90,13 @@ def update_airports(cur, data):
             latitude=?, longitude=?, altitude=?, timezone=?, dst=?,
             tz_db_time_zone=?, type=?, source=?
             WHERE airport_id=?
-        """, data[1:] + [data[0]])
+        """, data[1:14] + [data[0]])
         if cur.rowcount == 0:
             cur.execute("""
                 INSERT INTO airports VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
                 )
-            """, data)
+            """, data[:14])
     except mariadb.Error as e:
         print(f"Error with airport {data[0]}: {e}")
 
@@ -78,6 +110,7 @@ def import_airports(filename):
             data = clean_airports_row(row)
             if data is not None:
                 update_airports(cur, data)
+    
     conn.commit()
     conn.close()
     print("Finished importing airports")
@@ -89,9 +122,21 @@ def clear_airlines_table():
     conn = get_connection()
     cur = conn.cursor()
     try:
-        cur.execute("DELETE FROM airlines;")
+        cur.execute("DROP TABLE IF EXISTS airlines;")
+        cur.execute("""
+            CREATE TABLE airlines (
+                airline_id INT PRIMARY KEY,
+                name VARCHAR(255),
+                alias VARCHAR(255),
+                iata_code VARCHAR(5),
+                icao_code VARCHAR(6),
+                callsign VARCHAR(50),
+                country VARCHAR(50),
+                active VARCHAR(1)
+            )
+        """)
         conn.commit()
-        print("Cleared existing data from airlines table.")
+        print("Dropped and recreated airlines table.")
     except mariadb.Error as e:
         print(f"Error clearing airlines table: {e}")
     finally:
@@ -149,9 +194,22 @@ def clear_routes_table():
     conn = get_connection()
     cur = conn.cursor()
     try:
-        cur.execute("DELETE FROM routes;")
+        cur.execute("DROP TABLE IF EXISTS routes;")
+        cur.execute("""
+            CREATE TABLE routes (
+                airline VARCHAR(3),
+                airline_id INT,
+                source_airport VARCHAR(4),
+                source_airport_id INT,
+                destination_airport VARCHAR(4),
+                destination_airport_id INT,
+                codeshare VARCHAR(1),
+                stops INT,
+                equipment VARCHAR(50)
+            )
+        """)
         conn.commit()
-        print("Cleared existing data from routes table.")
+        print("Dropped and recreated routes table.")
     except mariadb.Error as e:
         print(f"Error clearing routes table: {e}")
     finally:
@@ -200,6 +258,16 @@ def import_routes(filename):
 
 if __name__ == "__main__":
     print("=== Starting Data Import ===")
+    
+    required_files = ["airports.dat", "airlines.dat", "routes.dat"]
+    missing_files = [f for f in required_files if not check_file_exists(f)]
+    
+    if missing_files:
+        print("The following required files are missing:")
+        for f in missing_files:
+            print(f" - {f}")
+        print("Please ensure all required files are in the current directory before running the import.")
+        sys.exit(1)
     
     print("\n1. Importing airports...")
     import_airports("airports.dat")
