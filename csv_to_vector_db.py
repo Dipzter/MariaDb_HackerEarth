@@ -3,11 +3,12 @@ import pandas as pd
 from sentence_transformers import SentenceTransformer
 import sys
 import os
+import numpy as np
 
 # --- CONFIGURATION --- 
 DB_CONFIG = {
     'user': 'root',
-    'password': 'Familyforever123',  # CHANGE THIS!
+    'password': 'Familyforever123',
     'host': 'localhost',
     'port': 3306
 }
@@ -37,9 +38,16 @@ print("1. Connecting to MariaDB and creating database...")
 try:
     conn = mariadb.connect(**DB_CONFIG)
     cur = conn.cursor()
+    
+    # Check MariaDB version
+    cur.execute("SELECT VERSION()")
+    version = cur.fetchone()[0]
+    print(f"   MariaDB Version: {version}")
+    
     cur.execute(f"CREATE DATABASE IF NOT EXISTS {DATABASE_NAME}")
     cur.execute(f"USE {DATABASE_NAME}")
     print(f"   Database '{DATABASE_NAME}' is ready.")
+    
 except mariadb.Error as e:
     print(f"Error connecting to MariaDB: {e}")
     sys.exit(1)
@@ -66,123 +74,110 @@ except mariadb.Error as e:
 # --- STEP 3: Read CSV and Insert Data ---
 print("3. Reading CSV file and inserting data...")
 try:
-    df = pd.read_csv(CSV_FILE_PATH)
-    print(f"   Found these columns: {df.columns.tolist()}")
+    # CLEAR THE TABLE COMPLETELY BEFORE INSERTING
+    cur.execute(f"TRUNCATE TABLE {TABLE_NAME}")
+    print("   Table cleared.")
     
-    # Clean the data: Replace NaN values with None
+    # Try different separators for CSV files
+    try:
+        df = pd.read_csv(CSV_FILE_PATH)
+    except:
+        df = pd.read_csv(CSV_FILE_PATH, sep='\t')
+    
+    print(f"   Found these columns: {df.columns.tolist()}")
+    print(f"   CSV has {len(df)} rows.")
+    
+    # Clean the data
     df = df.where(pd.notnull(df), None)
     
     insert_sql = f"INSERT INTO {TABLE_NAME} (name, city, country, iata_code) VALUES (?, ?, ?, ?)"
     
+    data_to_insert = []
     for _, row in df.iterrows():
-        # Get values, using None if value is NaN
         name_val = row['name'] if pd.notnull(row['name']) else None
         city_val = row['city'] if pd.notnull(row['city']) else None
         country_val = row['country'] if pd.notnull(row['country']) else None
-        iata_val = row['iata'] if pd.notnull(row['iata']) else None
+        iata_val = row['iata'] if 'iata' in df.columns and pd.notnull(row['iata']) else None
         
-        cur.execute(insert_sql, (name_val, city_val, country_val, iata_val))
+        data_to_insert.append((name_val, city_val, country_val, iata_val))
     
+    cur.executemany(insert_sql, data_to_insert)
     conn.commit()
-    print(f"   Inserted {len(df)} rows into the table.")
+    print(f"   Inserted {len(data_to_insert)} rows into the table.")
     
 except Exception as e:
     print(f"Error reading CSV or inserting data: {e}")
     conn.rollback()
 
-# --- STEP 4: Generate and Store Embeddings ---
-print("4. Generating AI embeddings...")
+# --- STEP 4: Generate and Store Embeddings (BATCH PROCESSING) ---
+print("4. Generating AI embeddings using batch processing...")
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
+# Now select all rows that need embeddings
 cur.execute(f"SELECT id, name, city, country FROM {TABLE_NAME}")
 airports = cur.fetchall()
 
-print("   Generating embeddings for each airport...")
+print(f"   Found {len(airports)} airports needing embeddings...")
 
-for (airport_id, name, city, country) in airports:
-    text_to_embed = f"{name} {city} {country}"
+BATCH_SIZE = 100
+total_processed = 0
+
+for i in range(0, len(airports), BATCH_SIZE):
+    batch = airports[i:i + BATCH_SIZE]
     
-    # Generate embedding and convert to native Python floats
-    embedding = model.encode(text_to_embed).tolist()
-    embedding = [float(x) for x in embedding]  # Convert to native Python floats
+    # Create descriptions for the batch
+    descriptions = [f"{name} airport in {city}, {country}" for (_, name, city, country) in batch]
     
-    # Use JSON_ARRAY_PACK function for MariaDB vector format
-    vector_str = '[' + ', '.join([str(x) for x in embedding]) + ']'
-    update_sql = f"UPDATE {TABLE_NAME} SET embedding = JSON_ARRAY_PACK('{vector_str}') WHERE id = {airport_id}"
+    # Generate embeddings for the entire batch
+    embeddings = model.encode(descriptions, batch_size=BATCH_SIZE, show_progress_bar=False)
     
+    # Prepare updates
+    updates = []
+    for j, ((airport_id, name, city, country), embedding_array) in enumerate(zip(batch, embeddings)):
+        # Convert to binary format that MariaDB expects
+        embedding_bytes = embedding_array.astype(np.float32).tobytes()
+        updates.append((embedding_bytes, airport_id))
+    
+    # Batch update
     try:
-        cur.execute(update_sql)
+        update_sql = f"UPDATE {TABLE_NAME} SET embedding = ? WHERE id = ?"
+        cur.executemany(update_sql, updates)
+        conn.commit()
+        total_processed += len(batch)
+        print(f"   Processed {total_processed}/{len(airports)} airports")
+        
     except mariadb.Error as e:
-        print(f"Error updating airport_id {airport_id}: {e}")
-        continue
+        print(f"   Batch update failed: {e}")
+        conn.rollback()
 
-conn.commit()
-print("   Embeddings generated and stored.")
+print("   Embeddings generated and stored in binary format.")
 
-# --- STEP 4.5: Check for NULL Embeddings ---
-print("4.5: Checking for NULL embeddings...")
-cur.execute(f"SELECT COUNT(*) FROM {TABLE_NAME} WHERE embedding IS NULL")
-null_count = cur.fetchone()[0]
-if null_count > 0:
-    print(f"   WARNING: Found {null_count} NULL embeddings. Fixing...")
-    cur.execute(f"SELECT id, name, city, country FROM {TABLE_NAME} WHERE embedding IS NULL")
-    null_airports = cur.fetchall()
-    
-    for (airport_id, name, city, country) in null_airports:
-        if name is None: name = ""
-        if city is None: city = ""
-        if country is None: country = ""
-        
-        text_to_embed = f"{name} {city} {country}".strip()
-        if text_to_embed:
-            embedding = model.encode(text_to_embed).tolist()
-            embedding = [float(x) for x in embedding]
-        else:
-            embedding = [0.0] * 384
-            embedding = [float(x) for x in embedding]
-        
-        vector_str = '[' + ', '.join([str(x) for x in embedding]) + ']'
-        update_sql = f"UPDATE {TABLE_NAME} SET embedding = JSON_ARRAY_PACK('{vector_str}') WHERE id = {airport_id}"
-        
-        try:
-            cur.execute(update_sql)
-        except mariadb.Error as e:
-            print(f"Error fixing NULL for airport_id {airport_id}: {e}")
-            continue
-    
-    conn.commit()
-    print("   NULL embeddings fixed.")
-
-# --- STEP 5: Create the Vector Index ---
+# --- STEP 5: Create Vector Index ---
 print("5. Creating vector index for fast search...")
 try:
-    # Double-check: Ensure absolutely no NULL values exist
-    cur.execute(f"SELECT COUNT(*) FROM {TABLE_NAME} WHERE embedding IS NULL")
-    null_count = cur.fetchone()[0]
-    
-    if null_count > 0:
-        print(f"   Still found {null_count} NULL embeddings. Creating zero vectors...")
-        zero_vector = [0.0] * 384
-        zero_vector = [float(x) for x in zero_vector]
-        zero_str = '[' + ', '.join([str(x) for x in zero_vector]) + ']'
-        cur.execute(f"UPDATE {TABLE_NAME} SET embedding = JSON_ARRAY_PACK('{zero_str}') WHERE embedding IS NULL")
-        conn.commit()
-    
-    # Now create the index
+    # Create the vector index
     create_index_sql = f"ALTER TABLE {TABLE_NAME} ADD VECTOR INDEX (embedding)"
     cur.execute(create_index_sql)
-    print("   Vector index created successfully.")
+    print("   Vector index created successfully!")
     
 except mariadb.Error as e:
     print(f"   Error creating index: {e}")
-    try:
-        create_index_sql = f"ALTER TABLE {TABLE_NAME} ADD VECTOR INDEX (embedding) IGNORE"
-        cur.execute(create_index_sql)
-        print("   Vector index created with IGNORE option.")
-    except mariadb.Error as e2:
-        print(f"   Failed to create index even with IGNORE: {e2}")
+
+# --- FINAL VALIDATION ---
+print("6. Final validation...")
+cur.execute(f"SELECT COUNT(*) FROM {TABLE_NAME} WHERE embedding IS NOT NULL")
+valid_embeddings = cur.fetchone()[0]
+cur.execute(f"SELECT COUNT(*) FROM {TABLE_NAME}")
+total_rows = cur.fetchone()[0]
+
+print(f"   Database: {DATABASE_NAME}")
+print(f"   Table: {TABLE_NAME}")
+print(f"   Total rows: {total_rows}")
+print(f"   Rows with embeddings: {valid_embeddings}")
+print(f"   Success rate: {(valid_embeddings/total_rows)*100:.1f}%")
 
 # --- CLEAN UP ---
 cur.close()
 conn.close()
-print("\n✅ All done! Database is ready for semantic search.")
+print("\n✅ Vector database setup completed!")
+print("   You can now run semantic searches on your airport data.")
