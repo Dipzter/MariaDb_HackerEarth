@@ -45,11 +45,10 @@ def clear_airports_table():
                 longitude FLOAT,
                 altitude INT,
                 timezone VARCHAR(10),
-                dst VARCHAR(1),
+                dst VARCHAR(3),
                 tz_db_time_zone VARCHAR(50),
                 type VARCHAR(20),
-                source VARCHAR(20),
-                embedding VECTOR(384)
+                source VARCHAR(20)
             )
         """)
         conn.commit()
@@ -59,46 +58,58 @@ def clear_airports_table():
     finally:
         conn.close()
 
+def clean_value(value):
+    return None if value.strip() in ('\\N', '') else value
 
 def clean_airports_row(row):
-    if len(row) < 14:
-        print(f"Skipping malformed row: {row}")
+    try:
+        airport_id = int(row[0])
+        name = row[1]
+        city = row[2]
+        country = row[3]
+        iata_code = row[4]
+        icao_code = row[5]
+        latitude = float(row[6]) if row[6] else None
+        longitude = float(row[7]) if row[7] else None
+        altitude = float(row[8]) if row[8] else None
+        timezone = row[9] if row[9] else None
+        dst = row[10] if row[10] else None
+        tz_db_time_zone = row[11] if row[11] else None
+        type_ = row[12] if row[12] else None
+        source = row[13] if row[13] else None
+ 
+        
+        return (airport_id, name, city, country, iata_code, icao_code, latitude, longitude, altitude, timezone, dst, tz_db_time_zone, type_, source)
+    except Exception as e:
+        print(f"Skipping row due to error: {e}")
         return None
-    data = []
-    for i, value in enumerate(row):
-        if value == '\\N' or value == '':
-            data.append(None)
-        elif i in [0, 7, 8]:  # airport_id, altitude
-            try:
-                data.append(int(value))
-            except ValueError:
-                data.append(None)
-        elif i in [6, 9]:  # latitude, longitude
-            try:
-                data.append(float(value))
-            except ValueError:
-                data.append(None)
-        else:
-            data.append(value)
-    return data
+
 
 def update_airports(cur, data):
     try:
-        cur.execute("""
-            UPDATE airports SET 
-            name=?, city=?, country=?, iata_code=?, icao_code=?,
-            latitude=?, longitude=?, altitude=?, timezone=?, dst=?,
-            tz_db_time_zone=?, type=?, source=?
-            WHERE airport_id=?
-        """, data[1:14] + [data[0]])
-        if cur.rowcount == 0:
-            cur.execute("""
-                INSERT INTO airports VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
-                )
-            """, data[:14])
+        sql = """
+            INSERT INTO airports (
+                airport_id, name, city, country, iata_code, icao_code, latitude, longitude, altitude, timezone, dst, tz_db_time_zone, type, source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                name = VALUES(name),
+                city = VALUES(city),
+                country = VALUES(country),
+                iata_code = VALUES(iata_code),
+                icao_code = VALUES(icao_code),
+                latitude = VALUES(latitude),
+                longitude = VALUES(longitude),
+                altitude = VALUES(altitude),
+                timezone = VALUES(timezone),
+                dst = VALUES(dst),
+                tz_db_time_zone = VALUES(tz_db_time_zone),
+                type = VALUES(type),
+                source = VALUES(source)
+        """
+        cur.execute(sql, data)
     except mariadb.Error as e:
         print(f"Error with airport {data[0]}: {e}")
+
 
 def import_airports(filename):
     clear_airports_table()

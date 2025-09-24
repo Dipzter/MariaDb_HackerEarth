@@ -98,27 +98,29 @@ def generate_embedding():
     
     print("Generating embeddings for airports...")
 
-    for i, airport in enumerate(airports):
-        airport_id, name, city, country = airport
+    BATCH_SIZE = 200
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+
+    for i in range(0, len(airports), BATCH_SIZE):
+        batch = airports[i:i + BATCH_SIZE]
+        descriptions = [f"{name} airport in {city}, {country}" for (_, name, city, country) in batch]
         
-        description = f"{name} airport in {city}, {country}"
-        
-        embedding_array = model.encode(description)
-        embedding_bytes = embedding_array.astype(np.float32).tobytes()
-        
+        embeddings = model.encode(descriptions, batch_size=BATCH_SIZE, show_progress_bar=False)
+        updates = []
+
+        for (airport_id, _, _, _), embedding_array in zip(batch, embeddings):
+            embedding_bytes = embedding_array.astype(np.float32).tobytes()
+            updates.append((embedding_bytes, airport_id))
+
         try:
-            cursor.execute(
+            cursor.executemany(
                 "UPDATE airports SET embedding = ? WHERE airport_id = ?",
-                (embedding_bytes, airport_id)
+                updates
             )
-            
-            if (i+1) % 100 == 0 or (i+1) == len(airports):
-                print(f"Processed {i+1}/{len(airports)} airports")
-                conn.commit()
-            
-            print(f"Updated embedding for airport ID {airport_id}")
+            conn.commit()
+            print(f"Processed {i + len(batch)}/{len(airports)} airports")
         except mariadb.Error as e:
-            print(f"Error updating airport ID {airport_id}: {e}")
+            print(f"Batch update failed at batch starting with airport ID {batch[0][0]}: {e}")
             conn.rollback()
             print(f"Rolling back changes for airport ID {airport_id}")
             
