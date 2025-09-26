@@ -1,3 +1,6 @@
+## 🎨 **Professional Touches:**
+```markdown
+
 ![MariaDB](https://img.shields.io/badge/MariaDB-003545?style=for-the-badge&logo=mariadb&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![AI](https://img.shields.io/badge/AI-Vector_Search-FF6B6B?style=for-the-badge)
