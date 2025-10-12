@@ -15,16 +15,27 @@ def hybrid_cos_search(query_text, location_filter = None, top_k=5):
     conn = get_connection()
     cursor = conn.cursor()
     
-    sql = "SELECT airport_id, name, city, country, embedding, latitude, longitude FROM airports WHERE embedding IS NOT NULL"
-    params = []
+    sql = ("SELECT airport_id, name, city, country, embedding, latitude, longitude "
+       "FROM airports "
+       "WHERE embedding IS NOT NULL")
 
+
+    params = []  # <-- define params before using it
+
+    
+    # keep your LIKE filter; add a fast country shortlist check first (optional)
     if location_filter:
-        sql += " AND (city = ? OR country = ?)"
-        params.extend([location_filter, location_filter])
+        sql += " AND (LOWER(city) LIKE ? OR LOWER(country) LIKE ?)"
+        like = f"%{location_filter.lower()}%"
+        params.extend([like, like])
 
     cursor.execute(sql, params)
     airports = cursor.fetchall()
     conn.close()
+
+    if not airports:
+        print("   (no matching airports found for this query/filter)")
+        return []
 
     location_mentions = extract_locations_from_query(query_text)
     
@@ -38,6 +49,8 @@ def hybrid_cos_search(query_text, location_filter = None, top_k=5):
 
     for airport in airports:
         airport_id, name, city, country, embedding_bytes, lat, lng = airport
+        if embedding_bytes is None:
+            continue
         embedding_array = np.frombuffer(embedding_bytes, dtype=np.float32)
         airport_ids.append(airport_id)
         names.append(name)
@@ -47,23 +60,25 @@ def hybrid_cos_search(query_text, location_filter = None, top_k=5):
         longitudes.append(lng)
         embedding_list.append(embedding_array)
 
-    embedding_matrix = np.vstack(embedding_list)
+    if not embedding_list:
+        return []
+    
+    embedding_matrix = np.vstack(embedding_list).astype(np.float32)
     embedding_norms = np.linalg.norm(embedding_matrix, axis=1)
-    query_norm = np.linalg.norm(query_embedding)
+    query_norm = np.linalg.norm(query_embedding) + 1e-10 # avoids division by zero
+    
     dot_products = np.dot(embedding_matrix, query_embedding)
     semantic_similarities = dot_products / (embedding_norms * query_norm + 1e-10)
 
-    # Compute geographic similarities
-    geographic_similarities = np.array([calculate_geographic_similarity(query_text, location_mentions, city, country)
-    for city, country in zip(cities, countries)])
+    geo_raw = np.array([
+        calculate_geographic_similarity(query_text, location_mentions, city, country)
+        for city, country in zip(cities, countries)
+    ], dtype=np.float32)
 
-    # Weighted combination
-    combined_scores = 0.7 * semantic_similarities + 0.3 * geographic_similarities
+    combined_scores = 0.8 * semantic_similarities + 0.2 * geo_raw
 
-    # Combine all
     similarities = list(zip(airport_ids, names, cities, countries, combined_scores, latitudes, longitudes))
 
-    # Sort by similarity
     similarities.sort(key=lambda x: x[4], reverse=True)
     return similarities[:top_k]
 
@@ -86,30 +101,26 @@ def extract_locations_from_query(query):
     return locations
 
 def calculate_geographic_similarity(query_text, location_mentions, city, country):
-    query_lower = query_text.lower()
-    city_lower = city.lower() if city else ""
-    country_lower = country.lower() if country else ""
+    if not location_mentions:
+        return 0.0
+    
+    city_lower = (city or "").lower()
+    country_lower = (country or "").lower()
 
-    relevance = 1.0
+    relevance = 0.0
     
     for loc in location_mentions:
         loc_lower = loc.lower()
         if loc_lower in city_lower or city_lower in loc_lower:
-            relevance *= 3.0
+            relevance = max(relevance, 1.0)
         elif loc_lower in country_lower or country_lower in loc_lower:
-            relevance *= 2.0
+            relevance = max(relevance, 0.7)
         elif any(term in city_lower for term in loc_lower.split()):
-            relevance *= 1.5
+            relevance = max(relevance, 0.5)
         elif any(term in country_lower for term in loc_lower.split()):
-            relevance *= 1.3
+            relevance = max(relevance, 0.4)
             
-    if "new york" in query_lower:
-        if "new york" in city_lower:
-            relevance *= 2.5
-        elif "usa" in country_lower or "united states" in country_lower:
-            relevance *= 1.2
-            
-    return min(relevance, 5.0)
+    return relevance
         
 
 def cos_similarities(query_text, top_k=5):
@@ -137,7 +148,7 @@ def cos_similarities(query_text, top_k=5):
         conn.close()
         return []
     
-    embedding_matrix = np.array(embeddings)
+    embedding_matrix = np.array(embeddings, dtype=np.float32)
     embedding_norms = np.linalg.norm(embedding_matrix, axis=1)
     query_norm = np.linalg.norm(query_embedding)
     

@@ -7,7 +7,7 @@ config = {
     'host': 'localhost',
     'port': 3306
 }
-needed_database = 'openflights_Dip'
+needed_database = 'openflights_dip'
 
 def get_connection():
     try:
@@ -43,8 +43,8 @@ def clear_airports_table():
                 icao_code VARCHAR(6),
                 latitude FLOAT,
                 longitude FLOAT,
-                altitude INT,
-                timezone VARCHAR(10),
+                altitude FLOAT,
+                timezone FLOAT ,
                 dst VARCHAR(3),
                 tz_db_time_zone VARCHAR(50),
                 type VARCHAR(20),
@@ -58,8 +58,8 @@ def clear_airports_table():
     finally:
         conn.close()
 
-def clean_value(value):
-    return None if value.strip() in ('\\N', '') else value
+def _nz(x):
+    return None if x in (None, "", "\\N") else x
 
 def clean_airports_row(row):
     try:
@@ -67,12 +67,12 @@ def clean_airports_row(row):
         name = row[1]
         city = row[2]
         country = row[3]
-        iata_code = row[4]
-        icao_code = row[5]
+        iata_code = _nz(row[4])
+        icao_code = _nz(row[5])
         latitude = float(row[6]) if row[6] else None
         longitude = float(row[7]) if row[7] else None
         altitude = float(row[8]) if row[8] else None
-        timezone = row[9] if row[9] else None
+        timezone = float(row[9]) if row[9] not in (None, "", "\\N") else None
         dst = row[10] if row[10] else None
         tz_db_time_zone = row[11] if row[11] else None
         type_ = row[12] if row[12] else None

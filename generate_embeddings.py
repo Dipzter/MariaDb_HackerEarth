@@ -11,7 +11,7 @@ def get_connection():
             password="$Dipankar917",
             host="localhost",
             port=3306,
-            database="openflights_Dip"
+            database="openflights_dip"
         )
         return conn
     except mariadb.Error as e:
@@ -22,7 +22,7 @@ def check_embeddings_exist():
     conn = get_connection()
     cur = conn.cursor()
     try:
-        cur.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'openflights_DIP' AND table_name = 'airports' AND column_name = 'embedding';")
+        cur.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'openflights_dip' AND table_name = 'airports' AND column_name = 'embedding';")
         column_exists = cur.fetchone()[0] > 0
         
         if not column_exists:
@@ -43,7 +43,7 @@ def create_embedding_column():
     conn = get_connection()
     cur = conn.cursor()
     try:
-        cur.execute("ALTER TABLE airports ADD COLUMN IF NOT EXISTS embedding VECTOR(384);")
+        cur.execute("ALTER TABLE airports ADD COLUMN IF NOT EXISTS embedding BLOB;")
         conn.commit()
         print("Ensured embedding column exists in airports table.")
     except mariadb.Error as e:
@@ -99,7 +99,6 @@ def generate_embedding():
     print("Generating embeddings for airports...")
 
     BATCH_SIZE = 200
-    model = SentenceTransformer('all-MiniLM-L6-v2')
 
     for i in range(0, len(airports), BATCH_SIZE):
         batch = airports[i:i + BATCH_SIZE]
@@ -131,12 +130,10 @@ def generate_embedding():
 
 if __name__ == "__main__":
     print("=== Airport Embeddings Generator ===")
-    
-    # Check current status
+
     embedding_count, total_count = check_embeddings_exist()
     print(f"Current status: {embedding_count}/{total_count} airports have embeddings")
-    
-    # Ask user what they want to do
+
     if embedding_count == 0:
         response = input("No embeddings found. Generate embeddings now? (yes/no): ")
         if response.lower() in ["yes", "y"]:
@@ -146,7 +143,6 @@ if __name__ == "__main__":
             sys.exit(0)
     else:
         response = input("Options: [1] Check status [2] Generate missing embeddings [3] Regenerate all: ")
-        
         if response == "1":
             print(f"Status: {embedding_count}/{total_count} airports have embeddings")
             sys.exit(0)
